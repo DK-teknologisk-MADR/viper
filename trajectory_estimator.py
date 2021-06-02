@@ -10,6 +10,7 @@ class TrajectoryEstimator(object):
 
     def __init__(self, data):
         assert type(data) == np.ndarray
+        self.data = None
         # data is an array of demonstrations
         # E.g
         # N demonstrations of k 3D position and orientation:
@@ -31,19 +32,25 @@ class TrajectoryEstimator(object):
         #         [x_N0, ..., x_Nk, y_N0, y_Nk, ..., oz_Nk]],
         print(f'TrajectoryEstimator::__init__() : data size = {len(data)}')
         assert len(data) > 0
+        self.data_raw = data
+        self.data = self.create_reformed_data(data)
+        self.basisFcns  = None
+        self.targetTraj = None
+
+    def create_reformed_data(self,data):
         self.dim = data.shape[2]
-        self.data = []
+        data_new = []
         for demo in data:
             d = []
             for i in range(demo.shape[1]):
                 d.extend(demo[:,i])
-            self.data.append(d)
-        self.data       = np.array(self.data)
-        self.basisFcns  = None
-        self.targetTraj = None
+            data_new.append(d)
+        data_new       = np.array(data_new)
+        return data_new
                 
     def calc_basisFcns(self, threshold=0.95, nc=None):
         assert self.data is not None
+        print(self.data.shape)
         self.U, self.S, self.VT = np.linalg.svd(self.data.T)
         if threshold is not None:
             trace = np.sum(self.S)
@@ -72,12 +79,12 @@ class TrajectoryEstimator(object):
         return result
 
     def fit_leastsq(self, targetTraj, initParams=None):
+        assert self.basisFcns is not None , "basis_fcns has not yet been calculated"
         def func(xdata, *params):
             return np.matmul(xdata,params)
         result = curve_fit(f=func, xdata=self.basisFcns, ydata=targetTraj, p0=np.zeros((1,self.nc)))
         return result
-        
-    
+
 
 
 if __name__ == '__main__':

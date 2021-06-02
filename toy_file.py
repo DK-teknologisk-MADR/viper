@@ -7,10 +7,9 @@ import re
 import cv2
 from shutil import copy
 import matplotlib.pyplot as plt
-data_dir = os.getcwd()
 #traj_est = TrajectoryEstimator()
-data_dir = '/home/madr/Projects/RK/Imitation learning/Viper_data/data'
 base_dir = '/home/madr/Projects/RK/Imitation learning/Viper_data'
+data_dir = os.path.join(base_dir,'data')
 
 
 
@@ -113,17 +112,7 @@ def dfs_to_svd_input(dfs,split,cols,dims_to_normalize,n=60):
     return svd_input,id_from_index
 
 
-dfs = load_data(data_dir,'train')
-svd_input,id_from_index = dfs_to_svd_input(dfs,'train',[" camX", "camY",],[0,1],n=50)
-traj_est = TrajectoryEstimator(svd_input)
-traj_est.calc_basisFcns()
-print('Diagonal:')
-print('---------')
-print(traj_est.S[:traj_est.nc])
-print('')
-print('Using nc=' + str(traj_est.nc))
-print('')
-def prepare_and_dump_jsons(svd_input,traj_est,data_dir,split,out_dir_base = base_dir):
+def prepare_and_dump_jsons(svd_pair,traj_est,data_dir,split,out_dir_base = base_dir):
     assert isinstance(traj_est,TrajectoryEstimator)
     if out_dir_base is None:
         out_dir_base = os.getcwd()
@@ -131,13 +120,12 @@ def prepare_and_dump_jsons(svd_input,traj_est,data_dir,split,out_dir_base = base
                           'fits_nc' + str(traj_est.nc) + '_steps' + str(traj_est.data.shape[1] // traj_est.dim),
                           'annotations',
                           split)
-    print(outdir)
+    print(f"copying to {outdir})")
     files = get_file_pairs(data_dir,split)
-    svd_input_reshaped = np.copy(traj_est.data)  # why?
-    print(svd_input.shape[0])
+    svd_input, id_from_index = svd_pair
+    svd_input_reshaped = traj_est.create_reformed_data(svd_input)
     for idx in range(svd_input.shape[0]):
         id = id_from_index[idx]
-        print(files[id][0])
         fname = files[id][0][:-4]
         img_name = files[id][0]
         img_path = os.path.join(data_dir,split,img_name)
@@ -145,14 +133,46 @@ def prepare_and_dump_jsons(svd_input,traj_est,data_dir,split,out_dir_base = base
         image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
         if image is None:
             raise ValueError(f"Could not find image {img_name}")
-        target = svd_input_reshaped[idx]
+        target = svd_input_reshaped[idx,:]
         result = traj_est.fit_leastsq(target)
         est_target = traj_est.trajectory(result[0])
         coefs = result[0]
-        print(outdir)
         os.makedirs(outdir, exist_ok=True)
         dump_json(os.path.join(outdir, fname+'.json'), image_path=fname + '.jpg',
                   image_height=image.shape[0], image_width=image.shape[1], points=coefs, label='coefs',
                   shape_type='polygon')
         copy(img_path, os.path.join(outdir, fname+'.jpg'))
-prepare_and_dump_jsons(svd_input,traj_est,data_dir,split = 'train')
+
+
+
+
+
+dfs = load_data(data_dir,'train')
+svd_train = dfs_to_svd_input(dfs,'train',[" camX", "camY",],[0,1],n=50)
+traj_est = TrajectoryEstimator(svd_train[0])
+traj_est.calc_basisFcns(None,16)
+traj_est.basisFcns
+
+dfs = load_data(data_dir,'val')
+svd_val = dfs_to_svd_input(dfs,'val',[" camX", "camY",],[0,1],n=50)
+
+dfs = load_data(data_dir,'test')
+svd_test = dfs_to_svd_input(dfs,'test',[" camX", "camY",],[0,1],n=50)
+
+print('Diagonal:')
+print('---------')
+print(traj_est.S[:traj_est.nc])
+print('')
+print('Using nc=' + str(traj_est.nc))
+print('')
+
+prepare_and_dump_jsons(svd_train,traj_est,data_dir,split = 'train',out_dir_base=base_dir)
+prepare_and_dump_jsons(svd_val,traj_est,data_dir,split = 'val',out_dir_base=base_dir)
+prepare_and_dump_jsons(svd_test,traj_est,data_dir,split = 'test',out_dir_base=base_dir)
+
+files = get_file_pairs(data_dir, 'train')
+image = cv2.imread(os.path.join(data_dir,'train',files[0][0]))
+
+cv2.imshow("img",)
+image.shape
+image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
