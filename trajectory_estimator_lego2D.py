@@ -157,11 +157,11 @@ if __name__ == '__main__':
 
     np.save(outdir+'/basisFcns.npy', traj_est.basisFcns)
 
-    
+
     # plot + json (train)
     for idx in range(len(files)):
-        fname = files[idx]
-        name = os.path.splitext(os.path.basename(fname))[0]
+        fname = files[idx][0]
+        name = fname
         print(name)
         img_name = fname[:-5]+'.jpg'
         image = cv2.imread(img_name)
@@ -172,9 +172,9 @@ if __name__ == '__main__':
         result = traj_est.fit_leastsq(target)
         est_target = traj_est.trajectory(result[0])
         # print((traj_est1.VT[:,idx])[:traj_est1.nc])
-        anno = list(zip(data_arr[idx][:n_step], data_arr[idx][n_step:2*n_step]))
-        fit  = list(zip(est_target[:n_step], est_target[n_step:2*n_step]))
-        plot_sample(dst_path=outdir+'/plots/train/'+name+'.jpg', image=image, anno=anno, pred=fit, anno_label='annotation', pred_label='fit (train)')
+        #anno = list(zip(data_arr[idx][:n_step], data_arr[idx][n_step:2*n_step]))
+        #fit  = list(zip(est_target[:n_step], est_target[n_step:2*n_step]))
+        #plot_sample(dst_path=outdir+'/plots/train/'+name+'.jpg', image=image, anno=anno, pred=fit, anno_label='annotation', pred_label='fit (train)')
         coefs = result[0]
         dump_json(outdir+'/annotations/train/'+name+'.json', image_path=name+'.jpg', image_height=image.shape[0], image_width=image.shape[1], points=coefs, label='coefs', shape_type='polygon')
         copy(img_name, outdir+'/annotations/train/'+name+'.jpg')

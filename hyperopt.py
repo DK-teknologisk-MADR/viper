@@ -1,8 +1,9 @@
-from main import validate
+from validater import validate
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import optuna as opt
+from trajectory_estimator import TrajectoryEstimator
 obs_nr = 100
 split_nr = 10
 gt_split_nr = 50
@@ -18,7 +19,12 @@ for i in range(obs_nr):
 
 #PSEUDOCODE:
 def objective(n_kpts,n_splits,**kpt_kwargs):
-    curves = from_kristian(n_splits,data) # n_splits X obs_nr
+
+    traj_est = TrajectoryEstimator(data)
+    traj_est.calc_basisFcns(None,nc=n_kpts)
+
+    curves = traj_est.basisFcns # n_splits X obs_nr
+    coefs = traj_est.VT  # obs_nr X n_kpts
     build_and_train_model(gt = coefs, pictures = pictures,n_kpts = n_kpts)
     val_coefs = eval_model(pictures=val_pictures) #  val_obs X n_kpts
     pred = np.matmul(curves,val_coefs)

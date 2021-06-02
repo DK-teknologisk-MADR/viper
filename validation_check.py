@@ -1,4 +1,4 @@
-import main
+import validater
 import numpy as np
 from numba import vectorize
 import matplotlib.pyplot as plt
@@ -26,11 +26,11 @@ data = np.zeros((3,gt_split_nr,dim))
 for i in range(3):
     data[i] = sq_curve(2*l,2 * n)
     pred[i] = sq_curve(l,n)
-x = main.validate(data,pred,2)
+x = validater.validate(data, pred, 2)
 theo_result = (8 + 8 * antideriv_hypotenuse(1))/(4*2*2*l)
 print(f"algorithm got {x}\ntrue value is {theo_result}\n"
       f"difference is{x-theo_result}")
-corner_dists,proj_is_valid,projs = main.gpu_comp(data,pred,obs_nr,split_nr,gt_split_nr,dim)
+corner_dists,proj_is_valid,projs = validater.gpu_comp(data, pred, obs_nr, split_nr, gt_split_nr, dim)
 x*8
 #check
 ls = []
@@ -58,7 +58,7 @@ for i in range(obs_nr):
     x = np.linspace(0,5,gt_split_nr)
     data[i] = np.array([x,1.5 * np.sin(x )]).T
 
-corner_dists,proj_is_valid,projs = main.gpu_comp(data,pred,obs_nr,split_nr,gt_split_nr,dim)
+corner_dists,proj_is_valid,projs = validater.gpu_comp(data, pred, obs_nr, split_nr, gt_split_nr, dim)
 #check
 ls = []
 for i in range(split_nr-1):
