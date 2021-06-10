@@ -31,7 +31,7 @@ theo_result = (8 + 8 * antideriv_hypotenuse(1))/(4*2*2*l)
 print(f"algorithm got {x}\ntrue value is {theo_result}\n"
       f"difference is{x-theo_result}")
 corner_dists,proj_is_valid,projs = validater.gpu_comp(data, pred, obs_nr, split_nr, gt_split_nr, dim)
-x*8
+
 #check
 ls = []
 for i in range(split_nr-1):

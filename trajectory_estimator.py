@@ -33,12 +33,13 @@ class TrajectoryEstimator(object):
         print(f'TrajectoryEstimator::__init__() : data size = {len(data)}')
         assert len(data) > 0
         self.data_raw = data
+        self.dim = data.shape[2]
         self.data = self.create_reformed_data(data)
         self.basisFcns  = None
         self.targetTraj = None
 
+
     def create_reformed_data(self,data):
-        self.dim = data.shape[2]
         data_new = []
         for demo in data:
             d = []
@@ -47,7 +48,12 @@ class TrajectoryEstimator(object):
             data_new.append(d)
         data_new       = np.array(data_new)
         return data_new
-                
+
+    def reform_to_std_data_shape(self,data):
+        print(data.shape,self.dim)
+        spl = np.split(data, self.dim, axis=1)
+        return np.array(spl).transpose(1, 2, 0)
+
     def calc_basisFcns(self, threshold=0.95, nc=None):
         assert self.data is not None
         print(self.data.shape)
@@ -66,9 +72,9 @@ class TrajectoryEstimator(object):
     def trajectory(self, coefs):
         assert self.basisFcns is not None
         assert len(self.basisFcns.shape) == 2
-        assert len(coefs.shape) == 1
+        #assert len(coefs.shape) == 1 why? might aswell do multiple
         assert self.basisFcns.shape[1] == coefs.shape[0]
-        return np.matmul(self.basisFcns, coefs)
+        return np.matmul(self.basisFcns, coefs).transpose() #
 
     def fit(self, targetTraj, initParams=None):
         if initParams is None:

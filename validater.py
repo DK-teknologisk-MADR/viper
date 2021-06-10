@@ -1,7 +1,8 @@
 import  torch
 import numpy as np
 from numba import njit, prange
-
+import sys
+import os
 
 def gpu_comp(data,pred,obs_nr,split_nr,gt_split_nr,dim):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -10,7 +11,8 @@ def gpu_comp(data,pred,obs_nr,split_nr,gt_split_nr,dim):
     ts_wo_last = ts[:,:(split_nr-1),:].reshape(obs_nr*(split_nr-1),dim)
     ts_wo_first = ts[:, 1:].reshape(obs_nr * (split_nr - 1), dim)
     proj_mats = torch.bmm(dts.unsqueeze(2),dts.unsqueeze(1)) / torch.bmm(dts.unsqueeze(1),dts.unsqueeze(2))
-    ts_data = torch.tensor(data)
+    ts_data = torch.tensor(data,device=device)
+    print(ts.device,ts_wo_last.device,ts_wo_first.device,proj_mats.device,ts_data.device)
     dat_wo_last = ts_data.unsqueeze(1).expand(obs_nr,split_nr-1,gt_split_nr,dim).reshape(-1,gt_split_nr,dim).transpose(1,2)
     projs =ts_wo_last[:,:,None] + torch.bmm(proj_mats, dat_wo_last-ts_wo_last[:,:,None])
 
@@ -51,15 +53,37 @@ def validate_batch(data,pred):
     return compare_corner_and_projs_then_trapz(data,proj_is_valid,projs,corner_dists,obs_nr, split_nr, gt_split_nr, dim)
 
 def validate(data,pred,batches = 1):
-    obs_nr,gt_split_nr,dim = data.shape
-    obs_per_batch = np.ceil(obs_nr/batches).astype(np.int)
-    indices = np.arange(0,obs_nr+1,obs_per_batch)
-    res_ls = []
-    for i in range(0,batches-1):
-        res_ls.append(validate_batch(data[indices[i]:indices[i+1]], pred[indices[i]:indices[i+1]]))
-    if not indices[-1] == obs_nr:
-        res_ls.append(validate_batch(data[indices[-1]:obs_nr], pred[indices[-1]:obs_nr]))
-    res_ls = np.hstack(res_ls)
-    return res_ls
+    if batches > 1 :
+        obs_nr,gt_split_nr,dim = data.shape
+        obs_per_batch = np.ceil(obs_nr/batches).astype(np.int)
+        indices = np.arange(0,obs_nr+1,obs_per_batch)
+        print(indices,obs_nr)
+        res_ls = []
+        for i in range(0,batches-1):
+            res_ls.append(validate_batch(data[indices[i]:indices[i+1]], pred[indices[i]:indices[i+1]]))
+        if not indices[-1] == obs_nr:
+            res_ls.append(validate_batch(data[indices[-1]:obs_nr], pred[indices[-1]:obs_nr]))
+        print(res_ls)
+        res = np.hstack(res_ls)
+    else:
+        res = validate_batch(data,pred)
+    return res
 
+def validate_euclid(data_coarse,pred):
+    obs_nr,split_nr,dim = data_coarse.shape
+    obs_nr,split_nr_two,dim = pred.shape
+    assert split_nr == split_nr_two , f"pred split_nr ({split_nr}) should be same as data_coarse split nr ({split_nr_two}). Did you remember to coarse down data?"
+    return np.mean(np.linalg.norm(data_coarse-pred,axis=2),axis = 1)
+
+def validate_coef(coef_data,coef_pred):
+    return np.mean(np.abs(coef_data-coef_pred),axis=1)
+
+
+def full_validation(traj_est,coefs_pred, gt_coef, gt_data):
+    pred_curve = traj_est.reform_to_std_data_shape(traj_est.trajectory(gt_coef))
+    coarse_curve_gt = traj_est.reform_to_std_data_shape(traj_est.trajectory(coefs_pred))
+    metrics = {'coefs': validate_coef(gt_coef, coefs_pred),
+               'euclid': validate_euclid(pred_curve, coarse_curve_gt),
+               'proj': validate(gt_data, pred_curve)}
+    return metrics
 

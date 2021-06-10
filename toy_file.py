@@ -1,15 +1,25 @@
+
 from trajectory_estimator import TrajectoryEstimator
+import torch
 import os
 import json
+from numba import cuda
+import pandas as pd
 import numpy as np
 import pandas as pd
 import re
 import cv2
+import time
+import subprocess
+import validater
+import sys
+sys.path.append(os.path.join(os.getcwd(), 'C073_Robotcell_keypoints/tf_model1/tf_model1'))
+from model_tester import ModelTester
+pd.set_option('display.max_columns', 500)
+pd.set_option("display.precision", 3)
 from shutil import copy
 import matplotlib.pyplot as plt
 #traj_est = TrajectoryEstimator()
-base_dir = '/home/madr/Projects/RK/Imitation learning/Viper_data'
-data_dir = os.path.join(base_dir,'data')
 
 
 
@@ -112,12 +122,16 @@ def dfs_to_svd_input(dfs,split,cols,dims_to_normalize,n=60):
     return svd_input,id_from_index
 
 
-def prepare_and_dump_jsons(svd_pair,traj_est,data_dir,split,out_dir_base = base_dir):
+def get_out_dir_suffix(nc,steps,dim,resize_dim):
+    return f'fits_nc{nc}_steps{steps}_size{resize_dim}_dim{dim}'
+
+
+def prepare_and_dump_jsons(svd_pair,traj_est,data_dir,split,out_dir_base,resize_dim):
     assert isinstance(traj_est,TrajectoryEstimator)
     if out_dir_base is None:
         out_dir_base = os.getcwd()
     outdir = os.path.join(out_dir_base,
-                          'fits_nc' + str(traj_est.nc) + '_steps' + str(traj_est.data.shape[1] // traj_est.dim),
+                          get_out_dir_suffix(traj_est.nc,svd_pair[0].shape[1],svd_pair[0].shape[2],resize_dim[0]),
                           'annotations',
                           split)
     print(f"copying to {outdir})")
@@ -130,7 +144,10 @@ def prepare_and_dump_jsons(svd_pair,traj_est,data_dir,split,out_dir_base = base_
         img_name = files[id][0]
         img_path = os.path.join(data_dir,split,img_name)
         image = cv2.imread(img_path)
-        image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
+        image = image[:450, 450:1130]
+        if resize_dim is not None:
+            image = cv2.resize(image, resize_dim)
+        #        image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
         if image is None:
             raise ValueError(f"Could not find image {img_name}")
         target = svd_input_reshaped[idx,:]
@@ -141,38 +158,135 @@ def prepare_and_dump_jsons(svd_pair,traj_est,data_dir,split,out_dir_base = base_
         dump_json(os.path.join(outdir, fname+'.json'), image_path=fname + '.jpg',
                   image_height=image.shape[0], image_width=image.shape[1], points=coefs, label='coefs',
                   shape_type='polygon')
-        copy(img_path, os.path.join(outdir, fname+'.jpg'))
+        cv2.imwrite(os.path.join(outdir, fname+'.jpg'),image)
 
+def traj_est_from_data_dir(data_dir,split,cols,norm_dims,n, nkey):
+    dfs = load_data(data_dir, split)
+    svd_train = dfs_to_svd_input(dfs, split, cols, norm_dims, n=n)
+    traj_est = TrajectoryEstimator(svd_train[0])
+    traj_est.calc_basisFcns(None, nkey)
+    return traj_est
 
+def load_treat_and_jsonize(base_dir,data_dir,cols,norm_dims,n, nkey,resize_dim = None):
+    dfs = load_data(data_dir, 'train')
+    svd_train = dfs_to_svd_input(dfs, 'train', cols, norm_dims, n=n)
+    traj_est = TrajectoryEstimator(svd_train[0])
+    traj_est.calc_basisFcns(None, nkey)
+    dfs = load_data(data_dir, 'val')
+    svd_val = dfs_to_svd_input(dfs, 'val', cols, norm_dims, n=n)
+    dfs = load_data(data_dir, 'test')
+    svd_test = dfs_to_svd_input(dfs, 'test', cols, norm_dims, n=n)
+    prepare_and_dump_jsons(svd_train, traj_est, data_dir, split='train', out_dir_base=base_dir,resize_dim=resize_dim)
+    prepare_and_dump_jsons(svd_val, traj_est, data_dir, split='val', out_dir_base=base_dir,resize_dim=resize_dim)
+    prepare_and_dump_jsons(svd_test, traj_est, data_dir, split='test', out_dir_base=base_dir,resize_dim=resize_dim)
 
+base_dir = '/home/madr/Projects/RK/Imitation_learning/Viper_data'
+data_dir = os.path.join(base_dir, 'data')
+cols = [" camX", "camY"]
+norm_dims = [0, 1]
+def execute(cmd):
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True) as proc:
+        for stdout_line in iter(proc.stdout.readline, ""):
+            yield stdout_line
 
+def get_model_output_dir(base_dir,n,nkey,resize_dim):
+    return f"{base_dir}/test_modelsn{n}nkey{nkey}resize_dim{resize_dim[0]}x{resize_dim[1]}"
 
-dfs = load_data(data_dir,'train')
-svd_train = dfs_to_svd_input(dfs,'train',[" camX", "camY",],[0,1],n=50)
-traj_est = TrajectoryEstimator(svd_train[0])
-traj_est.calc_basisFcns(None,16)
-traj_est.basisFcns
+def routine(n, nkey,resize_dim,dim,id):
+    result_df = pd.DataFrame(columns=["n", "nkey", "resize_H", "resize_W", "coefs", "euclid", "proj"])
+    load_treat_and_jsonize(base_dir,data_dir,cols,norm_dims,n,nkey,resize_dim=resize_dim)
+    dfs = load_data(data_dir, 'train')
+    svd_train = dfs_to_svd_input(dfs, 'train', cols, norm_dims, n=n)
+    traj_est = TrajectoryEstimator(svd_train[0])
+    traj_est.calc_basisFcns(threshold=None,nc=nkey)
+    model_output_dir = get_model_output_dir(base_dir,n,nkey,resize_dim)
+    model_dict = {'num_key_points':nkey , 'input_shape' : [resize_dim[0],resize_dim[1],3]}
+    trainer_dir = os.path.join(os.path.join(os.getcwd()),"C073_Robotcell_keypoints","tf_model1","tf_model1")
+    model_dict_s = json.dumps(model_dict)
+    shell_str = ['python',os.path.join(trainer_dir,'train.py'),
+              f"--train_dir=/home/madr/Projects/RK/Imitation_learning/Viper_data/fits_nc{nkey}_steps{n}_size{resize_dim[0]}_dim{dim}/annotations/train",
+              f"--valid_dir=/home/madr/Projects/RK/Imitation_learning/Viper_data/fits_nc{nkey}_steps{n}_size{resize_dim[0]}_dim{dim}/annotations/val",
+              "--model_name=Model_RK2021_lego_coefs",
+              "--num_epochs=5000",
+              "--label_type=RAW",
+              "--batch_size=6",
+              f"--output_dir={model_output_dir}",
+              f"--model_arg_dict={model_dict_s}",
+              ]
+    for x in execute(shell_str):
+        print(x)
+    time.sleep(3)
+
+    tester = ModelTester(model_name='Model_RK2021_lego_coefs', model_dir=model_output_dir,gpu_mem_frac=0.2,input_shape =[resize_dim[0],resize_dim[1],3] ,num_key_points=nkey)
+    files = np.load("/home/madr/Projects/RK/Imitation_learning/Viper_data/test_models/train_history.npz")
+    val_loss = np.min(files['valid_loss_history'])
+    file_pairs = get_file_pairs(data_dir,'val')
+    pred_coefs = []
+    for id, file_pair in file_pairs.items():
+        jpg_file, txt_file = file_pair
+        img = cv2.imread(os.path.join(data_dir, 'val', jpg_file))
+        img = img[:450, 450:1130]
+        img = cv2.resize(img, resize_dim)
+        pred_coefs.append(tester.get_key_points_raw([img]))
+    pred_coefs = np.array(pred_coefs).squeeze()
+    #FINISH THIS:
+    traj_est = traj_est_from_data_dir(data_dir,'train',cols,norm_dims, n,nkey)
+    dfs = load_data(data_dir,'val')
+    svd_input_coarse,_ = dfs_to_svd_input(dfs,'val',cols,norm_dims,n)
+    svd_input_fine,_ = dfs_to_svd_input(dfs,'val',cols,norm_dims,n)
+    reshaped_data = traj_est.create_reformed_data(svd_input_coarse)
+    print("RESHAPED DATA",reshaped_data.shape)
+    val_coefs = np.zeros((reshaped_data.shape[0],nkey))
+    for i in range(svd_input_coarse.shape[0]):
+        to_insert = reshaped_data.transpose()[:,i]
+        new_var = np.array(traj_est.fit_leastsq(to_insert)[0])
+        val_coefs[i,:] = new_var
+    res = validater.full_validation(traj_est, pred_coefs.transpose(), val_coefs.transpose(), svd_input_fine)
+    res_mean = [np.mean(vals) for vals in res.values()]
+    res_ls = [n, nkey, resize_dim[0], resize_dim[1]] + list(res_mean)
+    result_dict = {x: y for x, y in zip(result_df.columns, res_ls)}
+    result_df.sort_values(by=['euclid'], ascending=False, inplace=True)
+    result_df.to_csv(os.path.join(base_dir, "result.csv"))
+    result_df = result_df.append(result_dict,ignore_index=True)
+    print(result_df)
+id = 0
+n= 50
+nkey = 10
+dim = 2
+resize_h = 75
+res = routine(n,nkey,(resize_h,resize_h),2,id)
 
 dfs = load_data(data_dir,'val')
-svd_val = dfs_to_svd_input(dfs,'val',[" camX", "camY",],[0,1],n=50)
+data,indices = dfs_to_svd_input(dfs,'val',cols,norm_dims,n)
+traj_est = traj_est_from_data_dir(data_dir, 'train', cols, norm_dims, n, nkey)
+data_reshaped = traj_est.create_reformed_data(data)
+coefs = traj_est.fit_leastsq(data_reshaped[4])[0]
+indices[4]
 
-dfs = load_data(data_dir,'test')
-svd_test = dfs_to_svd_input(dfs,'test',[" camX", "camY",],[0,1],n=50)
+trajs = np.matmul(traj_est.basisFcns,coefs)
+tester = ModelTester(model_name='Model_RK2021_lego_coefs', model_dir=get_model_output_dir(base_dir,n,nkey,resize_dim=(resize_h,resize_h)), gpu_mem_frac=0.2,
+                     input_shape=[resize_h, resize_h, 3], num_key_points=nkey)
+#get pred coefs
+jpg, txt = get_file_pairs(data_dir,'val')[145]
+img = cv2.imread(os.path.join(data_dir, 'val', jpg))
+img = img[:450, 450:1130]
+img = cv2.resize(img, (resize_h,resize_h))
+pred_coefs = tester.get_key_points_raw([img])[0]
+pred_trajs = np.matmul(traj_est.basisFcns,pred_coefs)
 
-print('Diagonal:')
-print('---------')
-print(traj_est.S[:traj_est.nc])
-print('')
-print('Using nc=' + str(traj_est.nc))
-print('')
+x = traj_est.trajectory(coefs)
+plt.plot(data[4,:,0],data[4,:,1])
+plt.plot(x[0:50],x[50:])
+plt.plot(pred_trajs[:50],pred_trajs[50:])
 
-prepare_and_dump_jsons(svd_train,traj_est,data_dir,split = 'train',out_dir_base=base_dir)
-prepare_and_dump_jsons(svd_val,traj_est,data_dir,split = 'val',out_dir_base=base_dir)
-prepare_and_dump_jsons(svd_test,traj_est,data_dir,split = 'test',out_dir_base=base_dir)
+#y = torch.cat([torch.zeros((5,5)),torch.arange(0,25,1).reshape(5,5),torch.zeros((5,5))],axis=1)
+#x = torch.arange(0,36).reshape(6,6)
+#x.transpose(0,1).reshape(n_split,dim_r//n_split,dim_r).transpose(1,2)
 
-files = get_file_pairs(data_dir, 'train')
-image = cv2.imread(os.path.join(data_dir,'train',files[0][0]))
-
-cv2.imshow("img",)
-image.shape
-image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#train_files = get_file_pairs(data_dir,'train')
+#val_files = get_file_pairs(data_dir,'val')
+#test_files = get_file_pairs(data_dir,'test')
+#files = [train_files.keys(),val_files.keys(),test_files.keys()]
+#files = [set(list(ls)) for ls in files]
+#files[0].intersection(files[1]).intersection(files[2])
+#set(range(0,251))-files[0].union(files[1]).union(files[2])

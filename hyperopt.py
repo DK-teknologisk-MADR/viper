@@ -1,13 +1,18 @@
+import os
+import json
+import time
+
 from validater import validate
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-import optuna as opt
+import subprocess
 from trajectory_estimator import TrajectoryEstimator
 obs_nr = 100
 split_nr = 10
 gt_split_nr = 50
 dim = 2
+
 pred = np.zeros((obs_nr,split_nr,dim))
 data = np.zeros((obs_nr,gt_split_nr,dim))
 for i in range(obs_nr):
