@@ -1,7 +1,7 @@
 import os
 import json
 import time
-
+import pandas as pd
 from validater import validate
 import numpy as np
 import matplotlib.pyplot as plt
@@ -49,3 +49,8 @@ plt.plot(pred[0,:,0],pred[0,:,1],'-o')
 plt.plot(projs[0,0,0,0],projs[0,0,1,0],'-o')
 plt.plot(data[0,7,0],data[0,7,1],'-o')
 plt.plot(ls[:,0],ls[:,1],'-o',linestyle='None')
+dc = {'lr' : 0.5, 'ops' : 0.7}
+bc = {'lr' : 0.2 , 'ops': 0.2}
+df = pd.DataFrame([dc,bc])
+df['new'] = np.nan
+df.loc[1,'new'] = 0

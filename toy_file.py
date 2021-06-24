@@ -1,4 +1,3 @@
-
 from trajectory_estimator import TrajectoryEstimator
 import torch
 import os
@@ -147,7 +146,7 @@ def prepare_and_dump_jsons(svd_pair,traj_est,data_dir,split,out_dir_base,resize_
         image = image[:450, 450:1130]
         if resize_dim is not None:
             image = cv2.resize(image, resize_dim)
-        #        image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
+            image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
         if image is None:
             raise ValueError(f"Could not find image {img_name}")
         target = svd_input_reshaped[idx,:]
@@ -192,6 +191,8 @@ def execute(cmd):
 def get_model_output_dir(base_dir,n,nkey,resize_dim):
     return f"{base_dir}/test_modelsn{n}nkey{nkey}resize_dim{resize_dim[0]}x{resize_dim[1]}"
 
+
+#DOESNT WORK ON MASTER BRANCH
 def routine(n, nkey,resize_dim,dim,id):
     result_df = pd.DataFrame(columns=["n", "nkey", "resize_H", "resize_W", "coefs", "euclid", "proj"])
     load_treat_and_jsonize(base_dir,data_dir,cols,norm_dims,n,nkey,resize_dim=resize_dim)
@@ -227,9 +228,11 @@ def routine(n, nkey,resize_dim,dim,id):
         img = cv2.imread(os.path.join(data_dir, 'val', jpg_file))
         img = img[:450, 450:1130]
         img = cv2.resize(img, resize_dim)
-        pred_coefs.append(tester.get_key_points_raw([img]))
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+#        pred_coefs.append(tester.get_key_points_raw([img]))
+        pred_coefs.append(tester.get_key_points_raw([img_rgb]))
     pred_coefs = np.array(pred_coefs).squeeze()
-    #FINISH THIS:
+
     traj_est = traj_est_from_data_dir(data_dir,'train',cols,norm_dims, n,nkey)
     dfs = load_data(data_dir,'val')
     svd_input_coarse,_ = dfs_to_svd_input(dfs,'val',cols,norm_dims,n)
@@ -251,31 +254,39 @@ def routine(n, nkey,resize_dim,dim,id):
     print(result_df)
 id = 0
 n= 50
-nkey = 10
+nkey = 8
 dim = 2
-resize_h = 75
-res = routine(n,nkey,(resize_h,resize_h),2,id)
+resize_h = 50
+#res = routine(n,nkey,(resize_h,resize_h),2,id)
 
+dfs = load_data(data_dir,'train')
+data,indices = dfs_to_svd_input(dfs,'train',cols,norm_dims,n)
+traj_est = traj_est_from_data_dir(data_dir, 'train', cols, norm_dims, n, nkey)
+with open("/home/madr/Projects/RK/Imitation_learning/Viperkode/C073_Robotcell_keypoints/tf_model1/tf_model1/RK2021_folder/basis_fn.npy" , 'wb') as f:
+    np.save(f, traj_est.basisFcns)
+data_reshaped = traj_est.create_reformed_data(data)
+traj_est.calc_basisFcns(threshold=None,nc=nkey)
+#tester = ModelTester(model_name='Model_RK2021_lego_coefs', model_dir=get_model_output_dir(base_dir,n,nkey,resize_dim=(resize_h,resize_h)), gpu_mem_frac=0.2,
+#                     input_shape=[resize_h, resize_h, 3], num_key_points=nkey)
+tester = ModelTester( model_name = 'Model_RK2021_lego_coefs', model_dir = "/home/madr/Projects/RK/Imitation_learning/Viperkode/C073_Robotcell_keypoints/tf_model1/tf_model1/models/Model_RK2021_lego_coefs_b6_e5000_lr0.0001", gpu_mem_frac=0.2)
+
+#get pred coefs
+data_ind = 41
 dfs = load_data(data_dir,'val')
 data,indices = dfs_to_svd_input(dfs,'val',cols,norm_dims,n)
-traj_est = traj_est_from_data_dir(data_dir, 'train', cols, norm_dims, n, nkey)
+ind = indices.index(data_ind)
 data_reshaped = traj_est.create_reformed_data(data)
-coefs = traj_est.fit_leastsq(data_reshaped[4])[0]
-indices[4]
-
+coefs = traj_est.fit_leastsq(data_reshaped[ind])[0]
 trajs = np.matmul(traj_est.basisFcns,coefs)
-tester = ModelTester(model_name='Model_RK2021_lego_coefs', model_dir=get_model_output_dir(base_dir,n,nkey,resize_dim=(resize_h,resize_h)), gpu_mem_frac=0.2,
-                     input_shape=[resize_h, resize_h, 3], num_key_points=nkey)
-#get pred coefs
-jpg, txt = get_file_pairs(data_dir,'val')[145]
+jpg, txt = get_file_pairs(data_dir,'val')[data_ind]
 img = cv2.imread(os.path.join(data_dir, 'val', jpg))
 img = img[:450, 450:1130]
 img = cv2.resize(img, (resize_h,resize_h))
-pred_coefs = tester.get_key_points_raw([img])[0]
+img_rgb = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+pred_coefs = tester.get_key_points_raw([img_rgb])[0]
 pred_trajs = np.matmul(traj_est.basisFcns,pred_coefs)
-
 x = traj_est.trajectory(coefs)
-plt.plot(data[4,:,0],data[4,:,1])
+plt.plot(data[ind,:,0],data[ind,:,1])
 plt.plot(x[0:50],x[50:])
 plt.plot(pred_trajs[:50],pred_trajs[50:])
 
