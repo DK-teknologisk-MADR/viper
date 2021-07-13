@@ -91,8 +91,6 @@ class TrajectoryEstimator(object):
         result = curve_fit(f=func, xdata=self.basisFcns, ydata=targetTraj, p0=np.zeros((1,self.nc)))
         return result
 
-
-
 if __name__ == '__main__':
 
     print('\nTrajectoryEstimater() :: EXAMPLE\n')
